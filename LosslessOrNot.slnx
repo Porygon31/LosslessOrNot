@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="LosslessOrNot.Core/LosslessOrNot.Core.csproj" />
+  <Project Path="LosslessOrNot.Tests/LosslessOrNot.Tests.csproj" />
+  <Project Path="LosslessOrNot/LosslessOrNot.csproj" />
+</Solution>

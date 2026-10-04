@@ -1,0 +1,55 @@
+using LosslessOrNot.Core.Assessment;
+using LosslessOrNot.Core.Media;
+using LosslessOrNot.Core.Spectral;
+
+namespace LosslessOrNot.Core;
+
+/// <summary>Everything known about one file once it has been analysed.</summary>
+/// <param name="Error">Why the probe or the analysis failed, if it did.</param>
+public sealed record TrackResult(
+    string Path,
+    AudioInfo? Info,
+    SpectralAnalysis? Spectral,
+    LosslessAssessment Assessment,
+    string? Error = null);
+
+/// <summary>Probes, decodes and analyses files. Safe to use from several threads at once.</summary>
+public sealed class TrackAnalyzer(FfmpegTools tools)
+{
+    public FfmpegTools Tools { get; } = tools;
+
+    /// <summary>
+    /// Never throws for a bad file: failures come back as an
+    /// <see cref="LosslessStatus.Error"/> result, so that one unreadable file cannot
+    /// stop a batch. Only cancellation throws.
+    /// </summary>
+    public async Task<TrackResult> AnalyzeAsync(string path, CancellationToken cancellationToken = default)
+    {
+        AudioInfo info;
+        try
+        {
+            info = await AudioProbe.ProbeAsync(Tools.FfprobePath, path, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new TrackResult(path, null, null, LosslessAssessor.Failed(ex.Message), ex.Message);
+        }
+
+        try
+        {
+            SpectralAnalysis spectral = await SpectralAnalyzer
+                .AnalyzeFileAsync(path, Tools.FfmpegPath, info.SampleRate, info.DurationSec, cancellationToken)
+                .ConfigureAwait(false);
+            return new TrackResult(path, info, spectral, LosslessAssessor.Assess(info, spectral));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // A lossy codec is lossy whatever the spectrum says, so that answer
+            // survives a failed FFT pass; a lossless claim simply cannot be checked.
+            LosslessAssessment assessment = info.IsLosslessCodec
+                ? LosslessAssessor.Failed(ex.Message)
+                : LosslessAssessor.Assess(info, null);
+            return new TrackResult(path, info, null, assessment, ex.Message);
+        }
+    }
+}
