@@ -1,6 +1,7 @@
 using LosslessOrNot.Core;
 using LosslessOrNot.Core.Spectral;
 using Xunit.Abstractions;
+using static LosslessOrNot.Tests.Signals;
 
 namespace LosslessOrNot.Tests;
 
@@ -11,8 +12,6 @@ namespace LosslessOrNot.Tests;
 /// </summary>
 public sealed class SyntheticSpectrumTests(ITestOutputHelper output)
 {
-    private const int Rate = 48000;
-
     [Fact]
     public void FullBandNoise_IsLossless()
     {
@@ -59,6 +58,7 @@ public sealed class SyntheticSpectrumTests(ITestOutputHelper output)
         Assert.Equal(Rate / 2.0 / SpectralAnalyzer.SpecRowCount, res.FreqBinHz);
         Assert.Equal(30, res.TimeStartSec);
         Assert.True(res.TimeEndSec > res.TimeStartSec);
+        Assert.Equal(12, res.AnalyzedSec, precision: 6);
     }
 
     [Fact]
@@ -71,55 +71,6 @@ public sealed class SyntheticSpectrumTests(ITestOutputHelper output)
     public void LessThanOneFrame_IsAnError()
     {
         Assert.Throws<AudioAnalysisException>(() => SpectralAnalyzer.Analyze(new float[1000], Rate));
-    }
-
-    private static float[] WhiteNoise(int length, int seed = 1234)
-    {
-        var random = new Random(seed);
-        var samples = new float[length];
-        for (int i = 0; i < length; i++)
-        {
-            samples[i] = (float)(random.NextDouble() - 0.5);
-        }
-        return samples;
-    }
-
-    /// <summary>
-    /// White noise with every component above <paramref name="cutoffHz"/> removed
-    /// exactly, by zeroing the FFT bins of one long block: a perfect brick wall
-    /// landing in a true digital floor, which is the shape a lossy encoder leaves.
-    /// </summary>
-    private static float[] BrickWallNoise(int cutoffHz, int log2Length = 19)
-    {
-        int n = 1 << log2Length;
-        float[] noise = WhiteNoise(n);
-        var re = new double[n];
-        var im = new double[n];
-        for (int i = 0; i < n; i++)
-        {
-            re[i] = noise[i];
-        }
-
-        Fft.Transform(re, im);
-        int keep = (int)((long)cutoffHz * n / Rate);
-        for (int k = keep + 1; k < n - keep; k++)
-        {
-            re[k] = 0;
-            im[k] = 0;
-        }
-        // Inverse transform through the forward one: ifft(x) = conj(fft(conj(x))) / n.
-        for (int k = 0; k < n; k++)
-        {
-            im[k] = -im[k];
-        }
-        Fft.Transform(re, im);
-
-        var samples = new float[n];
-        for (int i = 0; i < n; i++)
-        {
-            samples[i] = (float)(re[i] / n);
-        }
-        return samples;
     }
 
     private void Log(SpectralAnalysis res) =>

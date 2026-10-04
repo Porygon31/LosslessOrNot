@@ -13,10 +13,23 @@ public sealed record TrackResult(
     LosslessAssessment Assessment,
     string? Error = null);
 
+/// <summary>How files are analysed.</summary>
+/// <param name="WindowSec">
+/// Seconds of audio to analyse in each file, clamped to the range
+/// <see cref="SpectralAnalyzer"/> allows. A shorter file is analysed whole.
+/// </param>
+public sealed record AnalysisOptions(double WindowSec = SpectralAnalyzer.DefaultWindowSec)
+{
+    public double WindowSec { get; } =
+        Math.Clamp(WindowSec, SpectralAnalyzer.MinWindowSec, SpectralAnalyzer.MaxWindowSec);
+}
+
 /// <summary>Probes, decodes and analyses files. Safe to use from several threads at once.</summary>
-public sealed class TrackAnalyzer(FfmpegTools tools)
+public sealed class TrackAnalyzer(FfmpegTools tools, AnalysisOptions? options = null)
 {
     public FfmpegTools Tools { get; } = tools;
+
+    public AnalysisOptions Options { get; } = options ?? new AnalysisOptions();
 
     /// <summary>
     /// Never throws for a bad file: failures come back as an
@@ -38,7 +51,7 @@ public sealed class TrackAnalyzer(FfmpegTools tools)
         try
         {
             SpectralAnalysis spectral = await SpectralAnalyzer
-                .AnalyzeFileAsync(path, Tools.FfmpegPath, info.SampleRate, info.DurationSec, cancellationToken)
+                .AnalyzeFileAsync(path, Tools.FfmpegPath, info.SampleRate, info.DurationSec, Options.WindowSec, cancellationToken)
                 .ConfigureAwait(false);
             return new TrackResult(path, info, spectral, LosslessAssessor.Assess(info, spectral));
         }

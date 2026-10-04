@@ -11,22 +11,23 @@ internal static class PcmDecoder
 {
     /// <summary>
     /// Streams mono float32 PCM at <paramref name="sampleRate"/> (the file's native
-    /// rate), starting at <paramref name="startSec"/> and lasting at most
-    /// <paramref name="durationSec"/>.
+    /// rate) into <paramref name="sink"/> as it is decoded, starting at
+    /// <paramref name="startSec"/> and lasting at most <paramref name="durationSec"/>.
     /// </summary>
+    /// <returns>The number of samples decoded.</returns>
     /// <exception cref="AudioAnalysisException">ffmpeg produced less than one FFT frame of audio.</exception>
-    public static async Task<ReadOnlyMemory<float>> DecodeMonoAsync(
+    public static async Task<long> DecodeMonoAsync(
         string filePath,
         string ffmpegExe,
         int sampleRate,
         double startSec,
         double durationSec,
+        SpectralAccumulator sink,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        int capacity = (int)(durationSec * sampleRate) + SpectralAnalyzer.FftSize;
-        var samples = new float[capacity];
-        int count = 0;
+        long capacity = (long)(durationSec * sampleRate) + SpectralAnalyzer.FftSize;
+        long count = 0;
 
         using Process process = ProcessRunner.Start(ffmpegExe, BuildArguments(filePath, sampleRate, startSec, durationSec));
         // Drained concurrently so ffmpeg can never block on a full stderr pipe.
@@ -35,6 +36,7 @@ internal static class PcmDecoder
         {
             Stream stdout = process.StandardOutput.BaseStream;
             var buffer = new byte[4 * 8192];
+            var samples = new float[buffer.Length / sizeof(float)];
             bool endOfStream = false;
             try
             {
@@ -43,7 +45,8 @@ internal static class PcmDecoder
                     int n = await stdout
                         .ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false, CancellationToken.None)
                         .ConfigureAwait(false);
-                    count += CopySamples(buffer, n, samples, count);
+                    int limit = (int)Math.Min(samples.Length, capacity - count);
+                    count += Feed(buffer, n, samples, limit, sink);
                     if (n < buffer.Length)
                     {
                         endOfStream = true;
@@ -73,7 +76,7 @@ internal static class PcmDecoder
                 ? $"Pas assez d'audio décodé ({count} échantillons) — ffmpeg : {why}"
                 : $"Pas assez d'audio décodé ({count} échantillons).");
         }
-        return samples.AsMemory(0, count);
+        return count;
     }
 
     // Every number is formatted with the invariant culture: on a French system the
@@ -93,13 +96,14 @@ internal static class PcmDecoder
         "-",
     ];
 
-    // Converts whole little-endian float32 samples. A trailing partial sample, which
-    // can only occur at the end of the stream, is dropped as Go's io.ReadFull loop did.
-    private static int CopySamples(byte[] buffer, int byteCount, float[] samples, int offset)
+    // Converts whole little-endian float32 samples (at most `limit`) and hands them to
+    // the sink. A trailing partial sample, which can only occur at the end of the
+    // stream, is dropped as Go's io.ReadFull loop did.
+    private static int Feed(byte[] buffer, int byteCount, float[] samples, int limit, SpectralAccumulator sink)
     {
-        int n = Math.Min(byteCount / sizeof(float), samples.Length - offset);
+        int n = Math.Min(byteCount / sizeof(float), limit);
         ReadOnlySpan<byte> source = buffer.AsSpan(0, n * sizeof(float));
-        Span<float> destination = samples.AsSpan(offset, n);
+        Span<float> destination = samples.AsSpan(0, n);
         if (BitConverter.IsLittleEndian)
         {
             MemoryMarshal.Cast<byte, float>(source).CopyTo(destination);
@@ -111,6 +115,7 @@ internal static class PcmDecoder
                 destination[i] = BinaryPrimitives.ReadSingleLittleEndian(source[(i * sizeof(float))..]);
             }
         }
+        sink.Add(destination);
         return n;
     }
 }

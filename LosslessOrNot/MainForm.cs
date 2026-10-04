@@ -23,10 +23,13 @@ public partial class MainForm : Form
         + "|Tous les fichiers|*.*";
 
     private readonly string[] _startupPaths;
-    private readonly AppSettings _settings = AppSettings.Load();
+    private readonly AppSettings _settings;
+    // The theme this session runs with: a change only takes effect after a restart.
+    private readonly AppTheme _activeTheme;
     private readonly Dictionary<TrackEntry, ListViewItem> _items = [];
     private readonly HashSet<string> _knownPaths = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Font _headingFont;
+    private readonly RichTextComposer _details;
+    private readonly RichTextComposer _explanations;
     private FfmpegTools? _tools;
 
     // Set while an analysis runs; there is never more than one run at a time.
@@ -40,17 +43,30 @@ public partial class MainForm : Form
     private bool _selectionRefreshPending;
 
     public MainForm()
-        : this([])
+        : this(AppSettings.Load(), [])
     {
     }
 
+    /// <param name="settings">Loaded by Program, which needs the theme before any window exists.</param>
     /// <param name="startupPaths">Files or folders to add and analyse as soon as the window shows.</param>
-    public MainForm(string[] startupPaths)
+    internal MainForm(AppSettings settings, string[] startupPaths)
     {
         InitializeComponent();
+        _settings = settings;
         _startupPaths = startupPaths;
-        _headingFont = new Font(detailsBox.Font, FontStyle.Bold);
-        paletteComboBox.SelectedIndex = Enum.IsDefined(_settings.Palette) ? (int)_settings.Palette : 0;
+        _activeTheme = settings.Theme;
+        _details = new RichTextComposer(detailsBox);
+        _explanations = new RichTextComposer(explanationBox);
+
+        NumericUpDown duration = durationBox.NumericUpDown;
+        duration.Minimum = (decimal)SpectralAnalyzer.MinWindowSec;
+        duration.Maximum = (decimal)SpectralAnalyzer.MaxWindowSec;
+        duration.Increment = 5;
+        duration.Value = settings.AnalysisSeconds;
+        duration.ValueChanged += durationBox_ValueChanged;
+
+        paletteComboBox.SelectedIndex = (int)settings.Palette;
+        themeComboBox.SelectedIndex = (int)settings.Theme;
     }
 
     protected override void OnLoad(EventArgs e)
@@ -65,6 +81,10 @@ public partial class MainForm : Form
         SetBusy(false);
         ShowDetails(null);
         UpdateSummary();
+        if (_activeTheme == AppTheme.Dark && !Application.IsDarkModeEnabled)
+        {
+            UpdateSummary("Thème sombre indisponible ici : il demande Windows 11, sans contraste élevé");
+        }
     }
 
     protected override async void OnShown(EventArgs e)
@@ -89,7 +109,8 @@ public partial class MainForm : Form
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
-        _headingFont.Dispose();
+        _details.Dispose();
+        _explanations.Dispose();
         base.OnFormClosed(e);
     }
 
@@ -272,7 +293,7 @@ public partial class MainForm : Form
         _runTotal = 0;
         _runDone = 0;
         SetBusy(true);
-        var analyzer = new TrackAnalyzer(_tools);
+        var analyzer = new TrackAnalyzer(_tools, new AnalysisOptions((double)durationBox.NumericUpDown.Value));
         IProgress<(TrackEntry Entry, TrackResult? Result)> progress =
             new Progress<(TrackEntry Entry, TrackResult? Result)>(OnAnalysisProgress);
         var options = new ParallelOptions
@@ -382,6 +403,8 @@ public partial class MainForm : Form
         cancelButton.Enabled = busy;
         analyzeButton.Enabled = !busy;
         ffmpegButton.Enabled = !busy;
+        // A run keeps the duration it started with.
+        durationBox.Enabled = !busy;
         progressBar.Visible = busy;
     }
 
@@ -576,6 +599,7 @@ public partial class MainForm : Form
         SpectralAnalysis? spectral = result?.Spectral;
         spectrogramView.Analysis = spectral;
         spectrumChart.Analysis = spectral;
+        ExplanationWriter.Write(_explanations, entry, LogicalToDeviceUnits(28));
 
         if (entry is null || result is null)
         {
@@ -587,7 +611,7 @@ public partial class MainForm : Form
                 verdictLabel.Text = "Aucun fichier sélectionné";
                 explanationLabel.Text =
                     "Ajoutez des fichiers audio (boutons ci-dessus ou glisser-déposer) : chacun est analysé pour savoir s'il est vraiment lossless.";
-                detailsBox.Clear();
+                _details.Reset(LogicalToDeviceUnits(150));
             }
             else
             {
@@ -609,37 +633,38 @@ public partial class MainForm : Form
 
     private void WriteDetails(TrackEntry entry, TrackResult? result)
     {
-        detailsBox.Clear();
-        detailsBox.SelectionTabs = [LogicalToDeviceUnits(150)];
-
-        AppendHeading("Fichier");
-        AppendLine(entry.Path);
+        _details.Reset(LogicalToDeviceUnits(150));
+        _details.Heading("Fichier");
+        _details.Line(entry.Path);
         if (result?.Info is { } info)
         {
-            AppendLine(DescribeFormat(info));
+            _details.Line(DescribeFormat(info));
         }
         if (result?.Error is { } error)
         {
-            AppendHeading("Erreur");
-            AppendLine(error);
+            _details.Heading("Erreur");
+            _details.Line(error);
         }
         if (result?.Spectral is { } s)
         {
-            AppendHeading("Mesures spectrales");
-            AppendField("Verdict spectral", DescribeVerdict(s));
-            AppendField("Contenu jusqu'à", $"{s.CutoffHz / 1000.0:0.00} kHz (Nyquist : {s.NyquistHz / 1000.0:0.00} kHz)");
-            AppendField("Pente la plus raide", s.CliffHz > 0 ? $"{s.ShelfDropDb:0.0} dB sur 1 kHz à {s.CliffHz / 1000.0:0.00} kHz" : "—");
-            AppendField("Niveau au-dessus", $"{s.EnergyAboveCutoffDb:0} dB");
-            AppendField("Extrait analysé", $"{s.TimeStartSec:0.0} s → {s.TimeEndSec:0.0} s ({s.FramesAnalyzed} trames)");
+            _details.Heading("Mesures spectrales");
+            _details.Field("Verdict spectral", DescribeVerdict(s));
+            _details.Field("Contenu jusqu'à", $"{s.CutoffHz / 1000.0:0.00} kHz (Nyquist : {s.NyquistHz / 1000.0:0.00} kHz)");
+            _details.Field("Pente la plus raide", s.CliffHz > 0 ? $"{s.ShelfDropDb:0.0} dB sur 1 kHz à {s.CliffHz / 1000.0:0.00} kHz" : "—");
+            _details.Field("Niveau au-dessus", $"{s.EnergyAboveCutoffDb:0} dB");
+            _details.Field(
+                "Extrait analysé",
+                $"{s.TimeStartSec:0.0} s → {s.TimeEndSec:0.0} s ({s.AnalyzedSec:0.#} s, {s.FramesAnalyzed} trames)");
 
-            AppendHeading("Preuves");
+            _details.Heading("Preuves");
             foreach (string line in s.Evidence)
             {
-                AppendLine("•  " + line);
+                _details.Line("•  " + line);
             }
+            _details.Gap();
+            _details.Line("L'onglet « Explications » détaille chaque critère.", font: _details.Italic, color: SystemColors.GrayText);
         }
-        detailsBox.SelectionStart = 0;
-        detailsBox.ScrollToCaret();
+        _details.ScrollToTop();
     }
 
     private static string DescribeFormat(AudioInfo info)
@@ -678,32 +703,6 @@ public partial class MainForm : Form
             _ => "non concluant",
         };
         return $"{verdict}, confiance {s.CutoffConfidence:P0}";
-    }
-
-    private void AppendHeading(string text)
-    {
-        if (detailsBox.TextLength > 0)
-        {
-            Append("\n");
-        }
-        Append(text + "\n", _headingFont);
-    }
-
-    private void AppendLine(string text) => Append(text + "\n");
-
-    private void AppendField(string label, string value)
-    {
-        Append(label + "\t", color: SystemColors.GrayText);
-        Append(value + "\n");
-    }
-
-    private void Append(string text, Font? font = null, Color? color = null)
-    {
-        detailsBox.SelectionStart = detailsBox.TextLength;
-        detailsBox.SelectionLength = 0;
-        detailsBox.SelectionFont = font ?? detailsBox.Font;
-        detailsBox.SelectionColor = color ?? detailsBox.ForeColor;
-        detailsBox.AppendText(text);
     }
 
     private void UpdateSummary(string? prefix = null)
@@ -761,6 +760,41 @@ public partial class MainForm : Form
         {
             _settings.Palette = palette;
             _settings.Save();
+        }
+    }
+
+    // Applies to the next analyses; files already analysed keep the duration they
+    // were analysed with until « Réanalyser ».
+    private void durationBox_ValueChanged(object? sender, EventArgs e)
+    {
+        _settings.AnalysisSeconds = (int)durationBox.NumericUpDown.Value;
+        _settings.Save();
+    }
+
+    private void themeComboBox_SelectedIndexChanged(object? sender, EventArgs e)
+    {
+        var theme = (AppTheme)Math.Max(0, themeComboBox.SelectedIndex);
+        if (theme == _settings.Theme)
+        {
+            return; // the initial selection, or no change
+        }
+        _settings.Theme = theme;
+        _settings.Save();
+        if (theme == _activeTheme)
+        {
+            return; // back to the theme in use: nothing to restart for
+        }
+
+        DialogResult answer = MessageBox.Show(
+            this,
+            $"Le thème « {themeComboBox.SelectedItem} » s'appliquera au prochain démarrage de LosslessOrNot.\n\n"
+            + "Redémarrer maintenant ? Les résultats affichés seront perdus.",
+            "Thème",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question);
+        if (answer == DialogResult.Yes)
+        {
+            Application.Restart();
         }
     }
 
@@ -829,7 +863,7 @@ public partial class MainForm : Form
         if (_tools is null)
         {
             ffmpegLabel.Text = "ffmpeg introuvable — cliquez ici pour l'indiquer";
-            ffmpegLabel.ForeColor = Color.Firebrick;
+            ffmpegLabel.ForeColor = ThemeColors.Problem;
             ffmpegLabel.ToolTipText = "LosslessOrNot utilise ffmpeg et ffprobe pour décoder l'audio.";
         }
         else

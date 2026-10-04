@@ -12,7 +12,24 @@ internal sealed record VerdictResult(
     SpectralVerdict Verdict,
     string LikelySource,
     double Confidence,
-    IReadOnlyList<string> Evidence);
+    IReadOnlyList<string> Evidence,
+    IReadOnlyList<AnalysisPoint> Criteria,
+    IReadOnlyList<AnalysisPoint> Observations,
+    string Conclusion);
+
+/// <summary>Which part of the file an analysis covered.</summary>
+/// <param name="EndSec">End of the spectrogram's time axis.</param>
+/// <param name="FileDurationSec">0 when unknown.</param>
+internal readonly record struct AnalysisScope(
+    double StartSec,
+    double EndSec,
+    double RequestedSec,
+    double AnalyzedSec,
+    double FileDurationSec)
+{
+    // Decoders may round the last packet: half a second short is not "shorter".
+    public bool IsShorterThanRequested => AnalyzedSec + 0.5 < RequestedSec;
+}
 
 /// <summary>
 /// Measures where content actually ends, looks for a codec-shaped wall, and
@@ -54,7 +71,7 @@ public static class VerdictEngine
     public const int MinFramesForFullConfidence = 60;
 
     /// <param name="db">Averaged power spectrum in dB relative to its peak, bin 0 = DC.</param>
-    internal static VerdictResult Derive(ReadOnlySpan<double> db, int sampleRate, int framesAnalyzed)
+    internal static VerdictResult Derive(ReadOnlySpan<double> db, int sampleRate, int framesAnalyzed, AnalysisScope scope)
     {
         int bins = db.Length;
         double binHz = (double)sampleRate / 2 / bins;
@@ -148,6 +165,11 @@ public static class VerdictEngine
         }
 
         var evidence = new List<string>();
+        if (scope.IsShorterThanRequested)
+        {
+            evidence.Add(Fr(
+                $"Seulement {scope.AnalyzedSec:0.0} s d'audio sur les {scope.RequestedSec:0} s demandées : le fichier a été analysé en entier."));
+        }
         if (framesAnalyzed < MinFramesForFullConfidence)
         {
             confidence *= 0.6;
@@ -181,8 +203,12 @@ public static class VerdictEngine
                 + "perte d'un programme musical pauvre en aigus.",
         });
 
+        var measured = new Measurements(
+            contentTop, wallHz, wallDrop, floorAbove, nyquist, framesAnalyzed, confidence, verdict, likelySource);
+        IReadOnlyList<AnalysisPoint> criteria = VerdictExplainer.Criteria(measured);
         return new VerdictResult(
-            cutoffHz, (int)wallHz, wallDrop, floorAbove, verdict, likelySource, confidence, evidence);
+            cutoffHz, (int)wallHz, wallDrop, floorAbove, verdict, likelySource, confidence, evidence,
+            criteria, VerdictExplainer.Observations(measured, scope), VerdictExplainer.Conclusion(measured, criteria));
     }
 
     /// <summary>

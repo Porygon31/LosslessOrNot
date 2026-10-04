@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LosslessOrNot.Charts;
+using LosslessOrNot.Core.Spectral;
 
 namespace LosslessOrNot;
 
@@ -18,6 +19,11 @@ internal sealed class AppSettings
 
     public SpectrogramPalette Palette { get; set; } = SpectrogramPalette.Magma;
 
+    /// <summary>Seconds analysed in each file.</summary>
+    public int AnalysisSeconds { get; set; } = (int)SpectralAnalyzer.DefaultWindowSec;
+
+    public AppTheme Theme { get; set; } = AppTheme.Classic;
+
     private static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LosslessOrNot", "settings.json");
 
@@ -27,7 +33,8 @@ internal sealed class AppSettings
         {
             if (File.Exists(FilePath))
             {
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath), JsonOptions) ?? new AppSettings();
+                AppSettings? settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath), JsonOptions);
+                return (settings ?? new AppSettings()).Normalized();
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
@@ -48,5 +55,20 @@ internal sealed class AppSettings
         {
             // Preferences are a convenience; failing to save them is not worth an error.
         }
+    }
+
+    // A hand-edited file must not yield values the interface cannot show.
+    private AppSettings Normalized()
+    {
+        AnalysisSeconds = (int)Math.Clamp(AnalysisSeconds, SpectralAnalyzer.MinWindowSec, SpectralAnalyzer.MaxWindowSec);
+        if (!Enum.IsDefined(Palette))
+        {
+            Palette = SpectrogramPalette.Magma;
+        }
+        if (!Enum.IsDefined(Theme))
+        {
+            Theme = AppTheme.Classic;
+        }
+        return this;
     }
 }

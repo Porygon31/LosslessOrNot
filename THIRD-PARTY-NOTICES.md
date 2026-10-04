@@ -15,6 +15,7 @@ adapted to this application.
 | `LosslessOrNot.Core/Spectral/SignalMath.cs` | `spectrum.go` |
 | `LosslessOrNot.Core/Spectral/SpectralAnalysis.cs` | `spectrum.go` |
 | `LosslessOrNot.Core/Spectral/SpectralAnalyzer.cs` | `spectrum.go` |
+| `LosslessOrNot.Core/Spectral/SpectralAccumulator.cs` | `spectrum.go` |
 | `LosslessOrNot.Core/Spectral/VerdictEngine.cs` | `spectrum.go` |
 | `LosslessOrNot.Core/Media/PcmDecoder.cs` | `spectrum.go` |
 | `LosslessOrNot.Core/Media/AudioProbe.cs` | `analyzer.go` |
@@ -30,6 +31,8 @@ Main changes:
 
 - translation to C#, split into classes, user-facing text rewritten in French;
 - spectrogram columns max-pooled as each frame is computed (same result, less memory);
+- audio analysed as ffmpeg decodes it, over a window the user chooses (5 to 600 s)
+  instead of a fixed 45 s capped at 900 frames;
 - ffmpeg arguments and ffprobe output handled with the invariant culture;
 - a final status combining the codec the file claims with the spectral verdict,
   without the bitrate heuristics;

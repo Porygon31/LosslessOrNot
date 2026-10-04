@@ -50,6 +50,27 @@ public sealed class SpectralAnalysis
     public IReadOnlyList<string> Evidence { get; init; } = [];
 
     /// <summary>
+    /// The three tests a lossy encoder's wall must pass — abrupt, low enough, and
+    /// landing in a digital floor — each with its value, meaning and threshold.
+    /// </summary>
+    public IReadOnlyList<AnalysisPoint> Criteria { get; init; } = [];
+
+    /// <summary>Everything else that informs the verdict: content reach, confidence, audio analysed…</summary>
+    public IReadOnlyList<AnalysisPoint> Observations { get; init; } = [];
+
+    /// <summary>One sentence tying the criteria to the verdict.</summary>
+    public string Conclusion { get; init; } = "";
+
+    /// <summary>Seconds the user asked to analyse.</summary>
+    public double RequestedSec { get; init; }
+
+    /// <summary>Seconds actually decoded and analysed; less than requested for a short file.</summary>
+    public double AnalyzedSec { get; init; }
+
+    /// <summary>The file's duration as ffprobe reported it; 0 when unknown.</summary>
+    public double FileDurationSec { get; init; }
+
+    /// <summary>
     /// The averaged magnitude spectrum in dB relative to its peak, max-pooled to at
     /// most <see cref="SpectralAnalyzer.AvgSpectrumPoints"/> points spanning 0..Nyquist.
     /// </summary>

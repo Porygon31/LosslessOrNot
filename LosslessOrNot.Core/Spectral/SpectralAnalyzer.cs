@@ -25,17 +25,26 @@ public static class SpectralAnalyzer
     /// <summary>50 % overlap.</summary>
     public const int FftHop = 2048;
 
-    /// <summary>Caps the work on long tracks: ~40 s of audio at 48 kHz.</summary>
-    public const int MaxFrames = 900;
+    /// <summary>Seconds of audio analysed unless the user chooses otherwise.</summary>
+    public const double DefaultWindowSec = 45.0;
 
-    /// <summary>Length of audio decoded for the analysis, in seconds.</summary>
-    public const double AnalysisWindowSec = 45.0;
+    /// <summary>Shortest window the user may choose: still well over the 60 frames of full confidence.</summary>
+    public const double MinWindowSec = 5.0;
+
+    /// <summary>Longest window the user may choose.</summary>
+    public const double MaxWindowSec = 600.0;
 
     /// <summary>
     /// Spectrogram resolution. 256 frequency rows is plenty for a display a few
     /// hundred pixels tall, and keeps the matrix small.
     /// </summary>
     public const int SpecRowCount = 256;
+
+    /// <summary>
+    /// Most spectrogram columns kept: beyond this, neighbouring frames share a
+    /// column, so a long window still yields a matrix of at most 512 KB.
+    /// </summary>
+    public const int MaxColumns = 2048;
 
     /// <summary>dB floor of the spectrogram's byte quantisation.</summary>
     public const double SpecFloorDb = -100.0;
@@ -46,43 +55,50 @@ public static class SpectralAnalyzer
     /// <summary>Used when the sample rate is unknown.</summary>
     public const int DefaultSampleRate = 44100;
 
-    // RMS below which a frame counts as silent.
-    private const double SilenceRms = 1e-4;
-
     /// <summary>
-    /// Decodes up to <see cref="AnalysisWindowSec"/> of <paramref name="filePath"/>
-    /// through ffmpeg, at its native sample rate, and analyses it.
+    /// Decodes <paramref name="windowSec"/> seconds of <paramref name="filePath"/>
+    /// through ffmpeg, at its native sample rate, and analyses them as they arrive.
+    /// A file shorter than the window is analysed whole, and the result says so.
     /// </summary>
+    /// <param name="durationSec">The file's duration; 0 when unknown.</param>
+    /// <param name="windowSec">Clamped to [<see cref="MinWindowSec"/>, <see cref="MaxWindowSec"/>].</param>
     public static async Task<SpectralAnalysis> AnalyzeFileAsync(
         string filePath,
         string ffmpegExe,
         int sampleRate,
         double durationSec,
+        double windowSec = DefaultWindowSec,
         CancellationToken cancellationToken = default)
     {
         if (sampleRate <= 0)
         {
             sampleRate = DefaultSampleRate;
         }
-        double start = AnalysisStartSec(durationSec);
-        ReadOnlyMemory<float> samples = await PcmDecoder
-            .DecodeMonoAsync(filePath, ffmpegExe, sampleRate, start, AnalysisWindowSec, cancellationToken)
+        windowSec = Math.Clamp(windowSec, MinWindowSec, MaxWindowSec);
+        double start = AnalysisStartSec(durationSec, windowSec);
+        double expectedSec = durationSec > 0 ? Math.Min(windowSec, durationSec - start) : windowSec;
+
+        var accumulator = new SpectralAccumulator(sampleRate, (long)(expectedSec * sampleRate));
+        await PcmDecoder
+            .DecodeMonoAsync(filePath, ffmpegExe, sampleRate, start, windowSec, accumulator, cancellationToken)
             .ConfigureAwait(false);
-        return Analyze(samples.Span, sampleRate, start);
+        return accumulator.Complete(new AnalysisRequest(start, windowSec, Math.Max(0, durationSec)));
     }
 
     /// <summary>
     /// Skips intros: analyses from a point likely to be dense — a quarter of the way
-    /// in, at most a minute in, and from the start for tracks under 20 s.
+    /// in, at most a minute in, and from the start for tracks under 20 s — but never
+    /// so late that the window would run past the end of the file.
     /// </summary>
-    internal static double AnalysisStartSec(double durationSec)
+    internal static double AnalysisStartSec(double durationSec, double windowSec = DefaultWindowSec)
     {
         // Written so that an unknown (0 or NaN) duration also starts at 0.
         if (!(durationSec >= 20))
         {
             return 0;
         }
-        return Math.Min(durationSec * 0.25, 60);
+        double preferred = Math.Min(durationSec * 0.25, 60);
+        return Math.Max(0, Math.Min(preferred, durationSec - windowSec));
     }
 
     /// <summary>Runs the full FFT pass over mono samples and derives an evidence-backed verdict.</summary>
@@ -90,145 +106,9 @@ public static class SpectralAnalyzer
     /// <exception cref="AudioAnalysisException">Too little audio, or nothing but silence.</exception>
     public static SpectralAnalysis Analyze(ReadOnlySpan<float> samples, int sampleRate, double timeStartSec = 0)
     {
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
-        if (samples.Length < FftSize)
-        {
-            throw new AudioAnalysisException($"Pas assez d'audio décodé ({samples.Length} échantillons).");
-        }
-
-        double[] window = Fft.HannWindow(FftSize);
-        const int bins = FftSize / 2;
-        var acc = new double[bins];
-        var power = new double[bins];
-        var re = new double[FftSize];
-        var im = new double[FftSize];
-
-        // Per-frame spectra kept for the interactive spectrogram, max-pooled to
-        // SpecRowCount bands as soon as each frame is computed. That is exactly what
-        // the Go code computed — it kept every raw frame and pooled at the end — but
-        // ~1.8 MB per track instead of ~15 MB: pooling uses the same band boundaries,
-        // and the reference peak is still taken over the raw per-frame values.
-        int specRows = Math.Min(SpecRowCount, bins);
-        (int Lo, int Hi)[] bands = SpectrogramBands(bins, specRows);
-        var pooledColumns = new List<double[]>(MaxFrames);
-        double rawPeak = 0;
-        int frames = 0;
-
-        for (int off = 0; off + FftSize <= samples.Length && frames < MaxFrames; off += FftHop)
-        {
-            ReadOnlySpan<float> frame = samples.Slice(off, FftSize);
-
-            // Skip near-silent frames: they carry no spectral information and would
-            // drag the average down, making a real cutoff look lower than it is.
-            double energy = 0;
-            foreach (float s in frame)
-            {
-                energy += (double)s * s;
-            }
-            if (Math.Sqrt(energy / FftSize) < SilenceRms)
-            {
-                continue;
-            }
-
-            for (int i = 0; i < FftSize; i++)
-            {
-                re[i] = frame[i] * window[i];
-                im[i] = 0;
-            }
-            Fft.Transform(re, im);
-
-            for (int b = 0; b < bins; b++)
-            {
-                double p = re[b] * re[b] + im[b] * im[b];
-                power[b] = p;
-                acc[b] += p;
-                if (p > rawPeak)
-                {
-                    rawPeak = p;
-                }
-            }
-            pooledColumns.Add(MaxPool(power, bands));
-            frames++;
-        }
-        if (frames == 0)
-        {
-            throw new AudioAnalysisException("Aucune trame audio non silencieuse à analyser.");
-        }
-
-        // Average power -> dB relative to the loudest bin.
-        double peak = 0;
-        for (int b = 0; b < bins; b++)
-        {
-            acc[b] /= frames;
-            if (acc[b] > peak)
-            {
-                peak = acc[b];
-            }
-        }
-        if (peak <= 0)
-        {
-            throw new AudioAnalysisException("Spectre silencieux.");
-        }
-        var db = new double[bins];
-        for (int b = 0; b < bins; b++)
-        {
-            db[b] = 10 * Math.Log10(acc[b] / peak + 1e-20);
-        }
-
-        VerdictResult verdict = VerdictEngine.Derive(db, sampleRate, frames);
-        return new SpectralAnalysis
-        {
-            SampleRate = sampleRate,
-            NyquistHz = sampleRate / 2,
-            CutoffHz = verdict.CutoffHz,
-            CutoffConfidence = verdict.Confidence,
-            CliffHz = verdict.CliffHz,
-            ShelfDropDb = verdict.ShelfDropDb,
-            EnergyAboveCutoffDb = verdict.EnergyAboveCutoffDb,
-            Verdict = verdict.Verdict,
-            LikelySource = verdict.LikelySource,
-            Evidence = verdict.Evidence,
-            AvgSpectrumDb = DownsampleSpectrum(db, AvgSpectrumPoints),
-            FramesAnalyzed = frames,
-            Columns = QuantizeColumns(pooledColumns, rawPeak),
-            SpecFloorDb = SpecFloorDb,
-            TimeStartSec = timeStartSec,
-            TimeEndSec = timeStartSec + (double)frames * FftHop / sampleRate,
-            FreqBinHz = (double)sampleRate / 2 / specRows,
-        };
-    }
-
-    /// <summary>Row r of the spectrogram covers bins [Lo, Hi): the boundaries Go's quantiseColumns used.</summary>
-    private static (int Lo, int Hi)[] SpectrogramBands(int bins, int rows)
-    {
-        var bands = new (int Lo, int Hi)[rows];
-        double group = (double)bins / rows;
-        for (int r = 0; r < rows; r++)
-        {
-            bands[r] = ((int)(r * group), Math.Min((int)((r + 1) * group), bins));
-        }
-        return bands;
-    }
-
-    // MAX-pooling, not averaging: averaging would hide a narrow but real
-    // high-frequency component, which is exactly the signal a spectrogram exists
-    // to show.
-    private static double[] MaxPool(double[] power, (int Lo, int Hi)[] bands)
-    {
-        var pooled = new double[bands.Length];
-        for (int r = 0; r < bands.Length; r++)
-        {
-            double m = 0;
-            for (int j = bands[r].Lo; j < bands[r].Hi; j++)
-            {
-                if (power[j] > m)
-                {
-                    m = power[j];
-                }
-            }
-            pooled[r] = m;
-        }
-        return pooled;
+        var accumulator = new SpectralAccumulator(sampleRate, samples.Length);
+        accumulator.Add(samples);
+        return accumulator.Complete(new AnalysisRequest(timeStartSec, (double)samples.Length / sampleRate, 0));
     }
 
     /// <summary>

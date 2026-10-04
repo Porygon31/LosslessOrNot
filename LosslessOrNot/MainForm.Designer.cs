@@ -41,6 +41,12 @@ partial class MainForm
         toolStripSeparator3 = new ToolStripSeparator();
         paletteLabel = new ToolStripLabel();
         paletteComboBox = new ToolStripComboBox();
+        durationLabel = new ToolStripLabel();
+        durationBox = new ToolStripNumericUpDown();
+        durationUnitLabel = new ToolStripLabel();
+        toolStripSeparator4 = new ToolStripSeparator();
+        themeLabel = new ToolStripLabel();
+        themeComboBox = new ToolStripComboBox();
         ffmpegButton = new ToolStripButton();
         statusStrip = new StatusStrip();
         summaryLabel = new ToolStripStatusLabel();
@@ -73,6 +79,8 @@ partial class MainForm
         spectrogramView = new Charts.SpectrogramView();
         spectrumTab = new TabPage();
         spectrumChart = new Charts.SpectrumChart();
+        explanationTab = new TabPage();
+        explanationBox = new RichTextBox();
         toolStrip.SuspendLayout();
         statusStrip.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)mainSplit).BeginInit();
@@ -88,12 +96,13 @@ partial class MainForm
         chartTabs.SuspendLayout();
         spectrogramTab.SuspendLayout();
         spectrumTab.SuspendLayout();
+        explanationTab.SuspendLayout();
         SuspendLayout();
         //
         // toolStrip
         //
         toolStrip.GripStyle = ToolStripGripStyle.Hidden;
-        toolStrip.Items.AddRange(new ToolStripItem[] { addFilesButton, addFolderButton, toolStripSeparator1, analyzeButton, cancelButton, toolStripSeparator2, removeButton, clearButton, toolStripSeparator3, paletteLabel, paletteComboBox, ffmpegButton });
+        toolStrip.Items.AddRange(new ToolStripItem[] { addFilesButton, addFolderButton, toolStripSeparator1, analyzeButton, cancelButton, toolStripSeparator2, removeButton, clearButton, toolStripSeparator3, durationLabel, durationBox, durationUnitLabel, toolStripSeparator4, paletteLabel, paletteComboBox, themeLabel, themeComboBox, ffmpegButton });
         toolStrip.Location = new Point(0, 0);
         toolStrip.Name = "toolStrip";
         toolStrip.Padding = new Padding(6, 2, 6, 2);
@@ -170,6 +179,30 @@ partial class MainForm
         toolStripSeparator3.Name = "toolStripSeparator3";
         toolStripSeparator3.Size = new Size(6, 25);
         //
+        // durationLabel
+        //
+        durationLabel.Name = "durationLabel";
+        durationLabel.Size = new Size(97, 22);
+        durationLabel.Text = "Durée analysée :";
+        //
+        // durationBox
+        //
+        durationBox.AutoSize = false;
+        durationBox.Name = "durationBox";
+        durationBox.Size = new Size(56, 23);
+        durationBox.ToolTipText = "Secondes analysées dans chaque fichier (5 à 600). Un fichier plus court est analysé en entier.";
+        //
+        // durationUnitLabel
+        //
+        durationUnitLabel.Name = "durationUnitLabel";
+        durationUnitLabel.Size = new Size(12, 22);
+        durationUnitLabel.Text = "s";
+        //
+        // toolStripSeparator4
+        //
+        toolStripSeparator4.Name = "toolStripSeparator4";
+        toolStripSeparator4.Size = new Size(6, 25);
+        //
         // paletteLabel
         //
         paletteLabel.Name = "paletteLabel";
@@ -184,6 +217,21 @@ partial class MainForm
         paletteComboBox.Size = new Size(100, 25);
         paletteComboBox.ToolTipText = "Palette de couleurs du spectrogramme";
         paletteComboBox.SelectedIndexChanged += paletteComboBox_SelectedIndexChanged;
+        //
+        // themeLabel
+        //
+        themeLabel.Name = "themeLabel";
+        themeLabel.Size = new Size(47, 22);
+        themeLabel.Text = "Thème :";
+        //
+        // themeComboBox
+        //
+        themeComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+        themeComboBox.Items.AddRange(new object[] { "Classique", "Sombre" });
+        themeComboBox.Name = "themeComboBox";
+        themeComboBox.Size = new Size(100, 25);
+        themeComboBox.ToolTipText = "Thème de l'interface (appliqué au redémarrage ; le thème sombre demande Windows 11)";
+        themeComboBox.SelectedIndexChanged += themeComboBox_SelectedIndexChanged;
         //
         // ffmpegButton
         //
@@ -451,6 +499,7 @@ partial class MainForm
         //
         chartTabs.Controls.Add(spectrogramTab);
         chartTabs.Controls.Add(spectrumTab);
+        chartTabs.Controls.Add(explanationTab);
         chartTabs.Dock = DockStyle.Fill;
         chartTabs.Location = new Point(0, 0);
         chartTabs.Name = "chartTabs";
@@ -498,6 +547,31 @@ partial class MainForm
         spectrumChart.Size = new Size(800, 386);
         spectrumChart.TabIndex = 0;
         //
+        // explanationTab
+        //
+        explanationTab.BackColor = SystemColors.Window;
+        explanationTab.Controls.Add(explanationBox);
+        explanationTab.Location = new Point(4, 24);
+        explanationTab.Name = "explanationTab";
+        explanationTab.Padding = new Padding(10, 8, 6, 6);
+        explanationTab.Size = new Size(800, 386);
+        explanationTab.TabIndex = 2;
+        explanationTab.Text = "Explications";
+        //
+        // explanationBox
+        //
+        explanationBox.BackColor = SystemColors.Window;
+        explanationBox.BorderStyle = BorderStyle.None;
+        explanationBox.DetectUrls = false;
+        explanationBox.Dock = DockStyle.Fill;
+        explanationBox.Location = new Point(10, 8);
+        explanationBox.Name = "explanationBox";
+        explanationBox.ReadOnly = true;
+        explanationBox.ScrollBars = RichTextBoxScrollBars.Vertical;
+        explanationBox.Size = new Size(784, 372);
+        explanationBox.TabIndex = 0;
+        explanationBox.Text = "";
+        //
         // MainForm
         //
         AllowDrop = true;
@@ -531,6 +605,7 @@ partial class MainForm
         chartTabs.ResumeLayout(false);
         spectrogramTab.ResumeLayout(false);
         spectrumTab.ResumeLayout(false);
+        explanationTab.ResumeLayout(false);
         ResumeLayout(false);
         PerformLayout();
     }
@@ -581,4 +656,12 @@ partial class MainForm
     private Charts.SpectrogramView spectrogramView;
     private TabPage spectrumTab;
     private Charts.SpectrumChart spectrumChart;
+    private TabPage explanationTab;
+    private RichTextBox explanationBox;
+    private ToolStripLabel durationLabel;
+    private ToolStripNumericUpDown durationBox;
+    private ToolStripLabel durationUnitLabel;
+    private ToolStripSeparator toolStripSeparator4;
+    private ToolStripLabel themeLabel;
+    private ToolStripComboBox themeComboBox;
 }

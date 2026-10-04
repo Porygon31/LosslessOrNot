@@ -1,3 +1,4 @@
+using LosslessOrNot.Core;
 using LosslessOrNot.Core.Spectral;
 
 namespace LosslessOrNot.Tests;
@@ -38,16 +39,37 @@ public sealed class SignalMathTests
     }
 
     [Theory]
-    [InlineData(0, 0)]
-    [InlineData(12, 0)]
-    [InlineData(19.9, 0)]
-    [InlineData(20, 5)]
-    [InlineData(100, 25)]
-    [InlineData(400, 60)]
-    [InlineData(double.NaN, 0)]
-    public void AnalysisStart_SkipsTheIntroButNeverMoreThanAMinute(double durationSec, double expectedStartSec)
+    [InlineData(0, 45, 0)]
+    [InlineData(12, 45, 0)]
+    [InlineData(19.9, 5, 0)]
+    [InlineData(20, 5, 5)]
+    [InlineData(100, 45, 25)]
+    [InlineData(400, 45, 60)]
+    [InlineData(double.NaN, 45, 0)]
+    public void AnalysisStart_SkipsTheIntroButNeverMoreThanAMinute(double durationSec, double windowSec, double expectedStartSec)
     {
-        Assert.Equal(expectedStartSec, SpectralAnalyzer.AnalysisStartSec(durationSec));
+        Assert.Equal(expectedStartSec, SpectralAnalyzer.AnalysisStartSec(durationSec, windowSec));
+    }
+
+    // The excerpt must fit in the file: a long window moves its start earlier, and a
+    // window longer than the file starts at 0 so that the whole file is analysed.
+    [Theory]
+    [InlineData(100, 90, 10)]
+    [InlineData(400, 380, 20)]
+    [InlineData(30, 45, 0)]
+    [InlineData(100, 100, 0)]
+    public void AnalysisStart_KeepsTheWindowInsideTheFile(double durationSec, double windowSec, double expectedStartSec)
+    {
+        Assert.Equal(expectedStartSec, SpectralAnalyzer.AnalysisStartSec(durationSec, windowSec));
+    }
+
+    [Theory]
+    [InlineData(1, 5)]
+    [InlineData(45, 45)]
+    [InlineData(10_000, 600)]
+    public void AnalysisOptions_ClampTheWindowToWhatTheAnalysisAllows(double requested, double expected)
+    {
+        Assert.Equal(expected, new AnalysisOptions(requested).WindowSec);
     }
 
     [Theory]

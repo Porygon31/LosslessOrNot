@@ -18,11 +18,13 @@ an MP3 or AAC source.
 ### How it works
 
 1. **ffprobe** reads what the file claims to be: codec, sample rate, bit depth.
-2. **ffmpeg** decodes a 45 s excerpt to mono, at the file's own sample rate. The
-   excerpt starts a quarter of the way in (at most 60 s in, or at the start for tracks
-   shorter than 20 s).
-3. A 4096-point FFT (Hann window, 50 % overlap) is averaged over up to 900 non-silent
-   frames.
+2. **ffmpeg** decodes an excerpt to mono, at the file's own sample rate, and the
+   analysis reads it as it arrives. The excerpt lasts 45 s by default — adjustable
+   from 5 to 600 s in the toolbar — and starts a quarter of the way in (at most 60 s
+   in, at the start for tracks shorter than 20 s, and early enough to fit in the file).
+   A file shorter than the chosen duration is analysed whole, and the result says so.
+3. A 4096-point FFT (Hann window, 50 % overlap) is averaged over every non-silent
+   frame of the excerpt.
 4. The analysis measures where the content ends and looks for the steepest 1 kHz drop.
    A lossy encoder cuts the treble with a low-pass "wall" and zeroes everything above
    it, so the verdict is "lossy" only when three signals agree:
@@ -55,7 +57,8 @@ The interface is in French; the statuses below are shown as they appear in the a
 - **ffmpeg** and **ffprobe**. They are looked up in the folder chosen with the
   "ffmpeg…" button, then in the application folder (and its `ffmpeg\` or
   `ffmpeg\bin\` subfolders), then on the `PATH`. The chosen folder is remembered in
-  `%APPDATA%\LosslessOrNot\settings.json`.
+  `%APPDATA%\LosslessOrNot\settings.json`, along with the analysis duration, the
+  spectrogram palette and the theme.
 
 ### Usage
 
@@ -70,9 +73,18 @@ dotnet run --project LosslessOrNot
   recursively.
 - Recognised extensions: `.flac`, `.wav`, `.aif`, `.aiff`, `.aifc`, `.m4a`, `.alac`,
   `.ape`, `.wv`, `.tta`, `.mp3`, `.aac`, `.ogg`, `.oga`, `.opus`, `.wma`.
+- Choose how many seconds of each file are analysed with **Durée analysée** in the
+  toolbar. It applies to the next analyses; right-click › Réanalyser updates files
+  already analysed.
 - Select a file to see its measurements and the evidence behind the verdict, its
   spectrogram (wheel to zoom, drag to pan, double-click to reset, hover to read the
   values) and its averaged spectrum with the decision thresholds.
+- The **Explications** tab tells why the file got its status, criterion by criterion:
+  what each measurement means, the value found, the threshold it is held to, and
+  whether it points to a lossy encoder (✘), reassures (✔), informs (ℹ) or limits the
+  analysis (⚠).
+- **Thème** switches between the classic and the dark theme. The change applies after
+  a restart, which the app offers to do.
 
 Run the tests (those that need ffmpeg are skipped when it cannot be found):
 
@@ -93,10 +105,11 @@ dotnet test
 - Fake hi-res is not detected: a 44.1 kHz master up-sampled to 24-bit / 96 kHz is
   shown as "Lossless Hi-Res".
 - Fake 24-bit (16-bit audio padded to 24 bits) is not detected.
-- Only one 45 s excerpt is analysed, downmixed to mono.
+- Only one excerpt is analysed (45 s by default), downmixed to mono.
 - No CSV or PNG export yet.
-- Decoding does not stop early once enough frames have been collected.
 - The interface is only available in French.
+- The dark theme needs Windows 11 (and no high-contrast mode); message boxes stay
+  light whatever the theme.
 
 ### Origin and license
 
@@ -128,11 +141,14 @@ WAV fabriqués à partir d'une source MP3 ou AAC.
 
 1. **ffprobe** lit ce que le fichier annonce : codec, fréquence d'échantillonnage,
    profondeur de bits.
-2. **ffmpeg** décode un extrait de 45 s en mono, à la fréquence d'échantillonnage du
-   fichier. L'extrait commence au quart du morceau (au plus tard à 60 s, ou dès le
-   début pour les morceaux de moins de 20 s).
+2. **ffmpeg** décode un extrait en mono, à la fréquence d'échantillonnage du fichier,
+   et l'analyse le lit au fil du décodage. L'extrait dure 45 s par défaut — réglable de
+   5 à 600 s dans la barre d'outils — et commence au quart du morceau (au plus tard à
+   60 s, dès le début pour les morceaux de moins de 20 s, et assez tôt pour tenir dans
+   le fichier). Un fichier plus court que la durée choisie est analysé en entier, et
+   le résultat le signale.
 3. Une FFT de 4096 points (fenêtre de Hann, recouvrement de 50 %) est moyennée sur
-   jusqu'à 900 trames non silencieuses.
+   toutes les trames non silencieuses de l'extrait.
 4. L'analyse mesure où s'arrête le contenu et cherche la chute la plus raide sur 1 kHz.
    Un encodeur avec perte coupe les aigus par un « mur » passe-bas et met à zéro tout
    ce qui se trouve au-dessus ; le verdict « avec perte » n'est donc rendu que si trois
@@ -166,7 +182,8 @@ WAV fabriqués à partir d'une source MP3 ou AAC.
 - **ffmpeg** et **ffprobe**. Ils sont cherchés dans le dossier choisi avec le bouton
   « ffmpeg… », puis dans le dossier de l'application (et ses sous-dossiers `ffmpeg\`
   ou `ffmpeg\bin\`), puis dans le `PATH`. Le dossier choisi est mémorisé dans
-  `%APPDATA%\LosslessOrNot\settings.json`.
+  `%APPDATA%\LosslessOrNot\settings.json`, avec la durée d'analyse, la palette du
+  spectrogramme et le thème.
 
 ### Utilisation
 
@@ -181,10 +198,19 @@ dotnet run --project LosslessOrNot
   dossiers sont parcourus avec leurs sous-dossiers.
 - Extensions reconnues : `.flac`, `.wav`, `.aif`, `.aiff`, `.aifc`, `.m4a`, `.alac`,
   `.ape`, `.wv`, `.tta`, `.mp3`, `.aac`, `.ogg`, `.oga`, `.opus`, `.wma`.
+- Choisissez combien de secondes de chaque fichier sont analysées avec **Durée
+  analysée** dans la barre d'outils. Le réglage vaut pour les analyses suivantes ;
+  clic droit › Réanalyser met à jour les fichiers déjà analysés.
 - Sélectionnez un fichier pour voir ses mesures et les preuves du verdict, son
   spectrogramme (molette pour zoomer, glisser pour se déplacer, double-clic pour
   revenir à la vue complète, survol pour lire les valeurs) et son spectre moyen avec
   les seuils de décision.
+- L'onglet **Explications** dit pourquoi le fichier a reçu son statut, critère par
+  critère : ce que mesure chaque point, la valeur trouvée, le seuil appliqué, et s'il
+  évoque un encodeur avec perte (✘), s'il est rassurant (✔), informatif (ℹ) ou s'il
+  limite l'analyse (⚠).
+- **Thème** permet de passer du thème classique au thème sombre. Le changement
+  s'applique après un redémarrage, que l'application propose de faire.
 
 Lancer les tests (ceux qui ont besoin de ffmpeg sont ignorés s'il est introuvable) :
 
@@ -205,9 +231,10 @@ dotnet test
 - Le faux hi-res n'est pas détecté : un master 44,1 kHz suréchantillonné en
   24 bits / 96 kHz apparaît comme « Lossless Hi-Res ».
 - Le faux 24 bits (de l'audio 16 bits complété jusqu'à 24 bits) n'est pas détecté.
-- Un seul extrait de 45 s est analysé, mixé en mono.
+- Un seul extrait est analysé (45 s par défaut), mixé en mono.
 - Pas encore d'export CSV ou PNG.
-- Le décodage ne s'arrête pas dès que suffisamment de trames ont été collectées.
+- Le thème sombre demande Windows 11 (sans mode contraste élevé) ; les boîtes de
+  message restent claires quel que soit le thème.
 
 ### Origine et licence
 

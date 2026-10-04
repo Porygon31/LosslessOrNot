@@ -21,9 +21,17 @@ static class Program
         CultureInfo.CurrentCulture = culture;
         CultureInfo.CurrentUICulture = culture;
 
+        AppSettings settings = AppSettings.Load();
+
         // To customize application configuration such as set high DPI settings or default font,
         // see https://aka.ms/applicationconfiguration.
         ApplicationConfiguration.Initialize();
-        Application.Run(new MainForm(args));
+
+        // The colour mode must be set before the first window exists, which is why
+        // switching themes takes a restart. Dark needs Windows 11 and no high
+        // contrast; anywhere else the application simply stays classic.
+        Application.SetColorMode(settings.Theme == AppTheme.Dark ? SystemColorMode.Dark : SystemColorMode.Classic);
+
+        Application.Run(new MainForm(settings, args));
     }
 }
