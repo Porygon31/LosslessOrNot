@@ -11,6 +11,19 @@ internal static class Ffmpeg
     public static FfmpegTools? Tools { get; } = FfmpegLocator.Locate();
 
     public static string Exe => Tools?.FfmpegPath ?? throw new InvalidOperationException(SkipReason);
+
+    // Builds differ: libmp3lame, libopus or libvorbis may be missing.
+    private static readonly Lazy<string> Encoders = new(() => Tools is null
+        ? ""
+        : ProcessRunner.RunAsync(Exe, ["-hide_banner", "-encoders"]).GetAwaiter().GetResult().StdOut);
+
+    public static bool HasEncoder(string name) => Encoders.Value.Contains($" {name} ", StringComparison.Ordinal);
+
+    /// <summary>Why a test needing these encoders must be skipped; null when it can run.</summary>
+    public static string? SkipReasonFor(string[] encoders) =>
+        Tools is null ? SkipReason
+        : encoders.FirstOrDefault(e => !HasEncoder(e)) is { } missing ? $"this ffmpeg has no {missing} encoder"
+        : null;
 }
 
 /// <summary>A [Fact] skipped when ffmpeg is unavailable — the equivalent of Go's t.Skip.</summary>
@@ -22,6 +35,15 @@ public sealed class FfmpegFactAttribute : FactAttribute
         {
             Skip = Ffmpeg.SkipReason;
         }
+    }
+}
+
+/// <summary>A [Theory] skipped unless ffmpeg and every named encoder are available.</summary>
+public sealed class FfmpegEncoderTheoryAttribute : TheoryAttribute
+{
+    public FfmpegEncoderTheoryAttribute(params string[] encoders)
+    {
+        Skip = Ffmpeg.SkipReasonFor(encoders);
     }
 }
 
@@ -85,6 +107,40 @@ public sealed class FixtureDir : IDisposable
             "-c:a", "libmp3lame", "-b:a", Invariant($"{bitrateKbps}k"), "-cutoff", Invariant($"{cutoffHz}"),
             output);
         return output;
+    }
+
+    /// <summary>
+    /// 12 s of stereo pink noise at 44.1 kHz/16-bit whose level swells and fades like
+    /// music (about 18 dB of dynamics): without them, nothing could follow the music
+    /// or ignore it. A fixed seed keeps it identical from run to run.
+    /// </summary>
+    /// <param name="gainDb">
+    /// Extra gain, clipped when written to 16 bits: +30 dB gives the RMS of a loud
+    /// electronic master, about −5 dBFS, whose lossy decodes overshoot full scale.
+    /// </param>
+    public async Task<string> MusicLikeMasterAsync(string name, int gainDb = 0)
+    {
+        string output = PathOf(name);
+        await RunFfmpegAsync(
+            "-f", "lavfi", "-i", "anoisesrc=d=12:c=pink:r=44100:a=0.3:seed=7",
+            "-af", Invariant($"volume=volume='0.12+0.88*abs(sin(2*PI*0.37*t)*sin(2*PI*0.11*t+1))':eval=frame,volume={gainDb}dB"),
+            "-ac", "2", "-ar", "44100", "-c:a", "pcm_s16le", output);
+        return output;
+    }
+
+    /// <summary>
+    /// The fake the app hunts: <paramref name="source"/> through a lossy encoder, then
+    /// decoded back into FLAC with <paramref name="flacArgs"/> (16-bit without dither
+    /// when omitted, as ffmpeg does by default).
+    /// </summary>
+    public async Task<string> TranscodeAsync(
+        string source, string name, string[] encodeArgs, string lossyExtension, string[]? flacArgs = null)
+    {
+        string lossy = PathOf(name + "." + lossyExtension);
+        await RunFfmpegAsync(["-i", source, .. encodeArgs, lossy]);
+        string flac = PathOf(name + ".flac");
+        await RunFfmpegAsync(["-i", lossy, .. flacArgs ?? ["-sample_fmt", "s16"], "-c:a", "flac", flac]);
+        return flac;
     }
 
     public void Dispose()

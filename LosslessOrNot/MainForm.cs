@@ -10,14 +10,6 @@ namespace LosslessOrNot;
 
 public partial class MainForm : Form
 {
-    // Extensions picked up when a folder is added. They only decide what is worth
-    // probing: ffprobe has the final word on what a file really contains.
-    private static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".flac", ".wav", ".aif", ".aiff", ".aifc", ".m4a", ".alac", ".ape", ".wv", ".tta",
-        ".mp3", ".aac", ".ogg", ".oga", ".opus", ".wma",
-    };
-
     private const string AudioFileFilter =
         "Fichiers audio|*.flac;*.wav;*.aif;*.aiff;*.aifc;*.m4a;*.alac;*.ape;*.wv;*.tta;*.mp3;*.aac;*.ogg;*.oga;*.opus;*.wma"
         + "|Tous les fichiers|*.*";
@@ -248,7 +240,7 @@ public partial class MainForm : Form
         return files;
     }
 
-    private static bool IsAudioFile(string path) => AudioExtensions.Contains(Path.GetExtension(path));
+    private static bool IsAudioFile(string path) => AudioFiles.HasAudioExtension(path);
 
     // ── Analysis ─────────────────────────────────────────────────────────────
 
@@ -651,7 +643,26 @@ public partial class MainForm : Form
             _details.Field("Verdict spectral", DescribeVerdict(s));
             _details.Field("Contenu jusqu'à", $"{s.CutoffHz / 1000.0:0.00} kHz (Nyquist : {s.NyquistHz / 1000.0:0.00} kHz)");
             _details.Field("Pente la plus raide", s.CliffHz > 0 ? $"{s.ShelfDropDb:0.0} dB sur 1 kHz à {s.CliffHz / 1000.0:0.00} kHz" : "—");
-            _details.Field("Niveau au-dessus", $"{s.EnergyAboveCutoffDb:0} dB");
+            _details.Field(
+                "Niveau au-dessus",
+                s.FloorAboveQuantizationDb is { } aboveQuantization
+                    ? $"{s.EnergyAboveCutoffDb:0} dB ({aboveQuantization:+0;-0;0} dB du bruit de quantification {s.BitsPerSample} bits)"
+                    : $"{s.EnergyAboveCutoffDb:0} dB");
+            if (s.FloorMusicCorrelation is { } correlation)
+            {
+                _details.Field(
+                    "Résidu / musique",
+                    $"{s.FloorDepthDb:0} dB sous la musique, corrélation {correlation:0.00} avec ses variations");
+            }
+            if (s.WallPersistence is { } persistence)
+            {
+                _details.Field("Mur permanent", $"dans {persistence:P0} des trames les plus riches en aigus");
+            }
+            if (s.HighBandMusicCorrelation is { } high)
+            {
+                _details.Field("Au-delà de 21 kHz", $"corrélation {high:0.00} avec la bande 12–20 kHz");
+            }
+            _details.Field("Probabilité", $"{s.LossyProbability:P0} de transcodage, tous indices confondus");
             _details.Field(
                 "Extrait analysé",
                 $"{s.TimeStartSec:0.0} s → {s.TimeEndSec:0.0} s ({s.AnalyzedSec:0.#} s, {s.FramesAnalyzed} trames)");

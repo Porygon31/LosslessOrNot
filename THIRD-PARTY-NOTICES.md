@@ -16,6 +16,7 @@ adapted to this application.
 | `LosslessOrNot.Core/Spectral/SpectralAnalysis.cs` | `spectrum.go` |
 | `LosslessOrNot.Core/Spectral/SpectralAnalyzer.cs` | `spectrum.go` |
 | `LosslessOrNot.Core/Spectral/SpectralAccumulator.cs` | `spectrum.go` |
+| `LosslessOrNot.Core/Spectral/PowerFrames.cs` | `spectrum.go` |
 | `LosslessOrNot.Core/Spectral/VerdictEngine.cs` | `spectrum.go` |
 | `LosslessOrNot.Core/Media/PcmDecoder.cs` | `spectrum.go` |
 | `LosslessOrNot.Core/Media/AudioProbe.cs` | `analyzer.go` |
@@ -37,7 +38,13 @@ Main changes:
 - a final status combining the codec the file claims with the spectral verdict,
   without the bitrate heuristics;
 - the up-sampled hi-res test fixture given headroom, so that it no longer clips
-  and actually exercises the rule it guards.
+  and actually exercises the rule it guards;
+- the confidence, a fixed step set by one measurement, replaced by a probability
+  that adds up frame-by-frame indicators and the rounding noise of the file's bit
+  depth (computed in files written for LosslessOrNot, not derived from Antra:
+  `ConfidenceModel.cs`, `FrameBands.cs`, `FrameEvidence.cs`, `Measurements.cs`);
+- the FFT size made a parameter (2048 to 16384 points instead of a fixed 4096),
+  levels still being measured against the peak of a 4096-point pass.
 
 ### Elastic License 2.0
 

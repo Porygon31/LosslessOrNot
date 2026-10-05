@@ -1,5 +1,6 @@
 using LosslessOrNot.Core.Media;
 using LosslessOrNot.Core.Spectral;
+using static LosslessOrNot.Core.TextFormat;
 
 namespace LosslessOrNot.Core.Assessment;
 
@@ -44,8 +45,8 @@ public static class LosslessAssessor
                 return new LosslessAssessment(
                     LosslessStatus.Suspect,
                     "Suspect",
-                    $"Le spectre ressemble à celui d'un encodeur avec perte ({spectral.LikelySource}), "
-                    + "mais trop peu d'audio a pu être analysé pour l'affirmer.");
+                    $"Le spectre ressemble à celui d'un encodeur avec perte ({spectral.LikelySource}), mais les indices "
+                    + Fr($"ne suffisent pas pour l'affirmer (confiance {spectral.CutoffConfidence:P0})."));
 
             case SpectralVerdict.Lossless:
                 bool hiRes = info.BitsPerSample >= 24 && info.SampleRate >= 88200;

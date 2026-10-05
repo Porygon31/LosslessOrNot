@@ -21,12 +21,17 @@ public enum PointSignal
 /// <param name="Value">The value measured on this file.</param>
 /// <param name="Explanation">What the measurement means and why it matters.</param>
 /// <param name="Threshold">The rule applied to the value; empty when there is none.</param>
+/// <param name="Weight">
+/// What the point adds to the probability of a lossy source, in log-odds: positive
+/// towards an encoder, negative towards a genuine master. Null when it does not count.
+/// </param>
 public sealed record AnalysisPoint(
     string Title,
     string Value,
     string Explanation,
     string Threshold,
-    PointSignal Signal);
+    PointSignal Signal,
+    double? Weight = null);
 
 /// <summary>What was asked of an analysis, for the explanations it produces.</summary>
 /// <param name="StartSec">Where the decoded audio starts in the track.</param>

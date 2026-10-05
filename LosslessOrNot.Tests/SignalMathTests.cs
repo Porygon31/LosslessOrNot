@@ -23,6 +23,44 @@ public sealed class SignalMathTests
         Assert.Equal(0, SignalMath.Percentile([], 0.5));
     }
 
+    [Fact]
+    public void Spearman_FollowsRanksNotValues()
+    {
+        double[] x = [1, 2, 3, 4, 5];
+
+        Assert.Equal(1, SignalMath.SpearmanCorrelation(x, [1, 4, 9, 16, 1000]), precision: 12);
+        Assert.Equal(-1, SignalMath.SpearmanCorrelation(x, [5, 4, 3, 2, 1]), precision: 12);
+    }
+
+    [Fact]
+    public void Spearman_AveragesTiesAndIsZeroForAConstant()
+    {
+        // Ranks of [1, 2, 2, 3] are [0, 1.5, 1.5, 3].
+        Assert.Equal(1, SignalMath.SpearmanCorrelation([1, 2, 2, 3], [10, 20, 20, 30]), precision: 12);
+        Assert.Equal(0, SignalMath.SpearmanCorrelation([1, 2, 3, 4], [7, 7, 7, 7]));
+        Assert.Equal(0, SignalMath.SpearmanCorrelation([1, 2], [2, 1]));
+        Assert.Throws<ArgumentException>(() => SignalMath.SpearmanCorrelation([1, 2, 3], [1, 2]));
+    }
+
+    [Fact]
+    public void Spearman_OfIndependentSeries_IsNearZero()
+    {
+        var random = new Random(5);
+        double[] x = Enumerable.Range(0, 4000).Select(_ => random.NextDouble()).ToArray();
+        double[] y = Enumerable.Range(0, 4000).Select(_ => random.NextDouble()).ToArray();
+
+        Assert.InRange(SignalMath.SpearmanCorrelation(x, y), -0.05, 0.05);
+    }
+
+    [Fact]
+    public void Spread_IgnoresTheExtremes()
+    {
+        // Nearest rank over 12 points: the 10th percentile is the 2nd value, the 90th the 10th.
+        double[] x = [-1000, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1000];
+
+        Assert.Equal(9 - 1, SignalMath.Spread(x));
+    }
+
     // Max-pooling, not averaging: a narrow but real high-frequency component must
     // survive the reduction to 512 points.
     [Fact]
@@ -72,14 +110,14 @@ public sealed class SignalMathTests
         Assert.Equal(expected, new AnalysisOptions(requested).WindowSec);
     }
 
+    // The medians measured for LAME 3.100 on real music must land on their setting.
     [Theory]
     [InlineData(11499, "≈64 kbps ou moins")]
-    [InlineData(11500, "MP3 ≈128 kbps")]
-    [InlineData(14999, "MP3 ≈128 kbps")]
-    [InlineData(15000, "MP3 ≈160 kbps / AAC ≈96 kbps")]
-    [InlineData(17999, "MP3 ≈192 kbps / AAC ≈128 kbps")]
-    [InlineData(19000, "AAC ≈256 kbps")]
-    [InlineData(20499, "MP3 ≈320 kbps")]
+    [InlineData(16590, "MP3 ≈128 kbps (V5)")]
+    [InlineData(17960, "MP3 ≈160 kbps / Vorbis q3")]
+    [InlineData(18670, "MP3 ≈192 kbps (V2)")]
+    [InlineData(19360, "MP3 ≈256 kbps")]
+    [InlineData(19960, "MP3 ≈320 kbps (V0), AAC, Opus ou Vorbis")]
     [InlineData(20500, "encodeur avec perte à haut débit")]
     public void GuessEncoder_MapsCutoffBands(int cutoffHz, string expected)
     {

@@ -11,6 +11,7 @@ internal static class ChartPainting
     public static readonly Color ContentMarker = Color.FromArgb(0, 200, 255);
     public static readonly Color WallMarker = Color.FromArgb(255, 92, 92);
     public static readonly Color FloorMarker = Color.FromArgb(255, 190, 70);
+    public static readonly Color QuantizationMarker = Color.FromArgb(185, 150, 255);
 
     private static readonly double[] StepMultiples = [1, 2, 5];
 
