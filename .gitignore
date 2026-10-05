@@ -480,3 +480,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Calibration runs: features.csv and report.md name your music files
+calibration-*/

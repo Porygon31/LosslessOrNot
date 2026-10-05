@@ -19,16 +19,36 @@ namespace LosslessOrNot.Core.Spectral;
 /// </remarks>
 public static class SpectralAnalyzer
 {
-    /// <summary>~11.7 Hz per bin at 48 kHz — fine enough to place a cutoff precisely.</summary>
-    public const int FftSize = 4096;
+    /// <summary>
+    /// ~11.7 Hz per bin at 48 kHz — fine enough to place a cutoff precisely. Frames
+    /// overlap by half, whatever their size.
+    /// </summary>
+    /// <remarks>
+    /// 8192 points were tried on the calibration corpus of 2026-10-05, over 90 s, with
+    /// levels kept on the 4096-point scale: walls and floors measured the same within
+    /// 0.3 dB, but the frame-by-frame indicators lost ground. Over 186 ms frames the
+    /// residue above a codec's wall seemed to follow the music, and the wall of a
+    /// clipped decode held in fewer frames: 40.0 % of the transcodes were called fake
+    /// instead of 40.7 % at 4096 points, and 17.7 % suspect instead of 20.2 %.
+    /// </remarks>
+    public const int DefaultFftSize = 4096;
 
-    /// <summary>50 % overlap.</summary>
-    public const int FftHop = 2048;
+    /// <summary>Smallest FFT accepted: a bin stays narrower than the 100 Hz frame bands up to 192 kHz.</summary>
+    public const int MinFftSize = 2048;
+
+    /// <summary>Largest FFT accepted: 0.37 s per frame at 44.1 kHz already blurs the music's dynamics.</summary>
+    public const int MaxFftSize = 16384;
+
+    /// <summary>
+    /// The FFT size whose peak every level is measured against, whatever the size of
+    /// the analysis: the size the thresholds were calibrated at.
+    /// </summary>
+    public const int LevelReferenceFftSize = 4096;
 
     /// <summary>Seconds of audio analysed unless the user chooses otherwise.</summary>
     public const double DefaultWindowSec = 45.0;
 
-    /// <summary>Shortest window the user may choose: still well over the 60 frames of full confidence.</summary>
+    /// <summary>Shortest window the user may choose: at the default FFT size, still well over the 60 frames of full confidence.</summary>
     public const double MinWindowSec = 5.0;
 
     /// <summary>Longest window the user may choose.</summary>
@@ -62,12 +82,19 @@ public static class SpectralAnalyzer
     /// </summary>
     /// <param name="durationSec">The file's duration; 0 when unknown.</param>
     /// <param name="windowSec">Clamped to [<see cref="MinWindowSec"/>, <see cref="MaxWindowSec"/>].</param>
+    /// <param name="bitsPerSample">
+    /// The file's integer bit depth, which sets the rounding noise it carries; 0 when
+    /// unknown or floating-point.
+    /// </param>
+    /// <param name="fftSize">Points per FFT frame; see <see cref="IsValidFftSize"/>.</param>
     public static async Task<SpectralAnalysis> AnalyzeFileAsync(
         string filePath,
         string ffmpegExe,
         int sampleRate,
         double durationSec,
         double windowSec = DefaultWindowSec,
+        int bitsPerSample = 0,
+        int fftSize = DefaultFftSize,
         CancellationToken cancellationToken = default)
     {
         if (sampleRate <= 0)
@@ -78,12 +105,20 @@ public static class SpectralAnalyzer
         double start = AnalysisStartSec(durationSec, windowSec);
         double expectedSec = durationSec > 0 ? Math.Min(windowSec, durationSec - start) : windowSec;
 
-        var accumulator = new SpectralAccumulator(sampleRate, (long)(expectedSec * sampleRate));
+        var accumulator = new SpectralAccumulator(sampleRate, (long)(expectedSec * sampleRate), bitsPerSample, fftSize);
         await PcmDecoder
             .DecodeMonoAsync(filePath, ffmpegExe, sampleRate, start, windowSec, accumulator, cancellationToken)
             .ConfigureAwait(false);
         return accumulator.Complete(new AnalysisRequest(start, windowSec, Math.Max(0, durationSec)));
     }
+
+    /// <summary>
+    /// Whether the analysis accepts frames of <paramref name="fftSize"/> points: a
+    /// power of two from <see cref="MinFftSize"/> to <see cref="MaxFftSize"/>.
+    /// Doubling it halves the width of a bin and doubles the audio in each frame.
+    /// </summary>
+    public static bool IsValidFftSize(int fftSize) =>
+        fftSize is >= MinFftSize and <= MaxFftSize && (fftSize & (fftSize - 1)) == 0;
 
     /// <summary>
     /// Skips intros: analyses from a point likely to be dense — a quarter of the way
@@ -103,10 +138,13 @@ public static class SpectralAnalyzer
 
     /// <summary>Runs the full FFT pass over mono samples and derives an evidence-backed verdict.</summary>
     /// <param name="timeStartSec">Where <paramref name="samples"/> start in the track, for the time axis.</param>
+    /// <param name="bitsPerSample">The integer depth the samples were rounded to; 0 when unknown.</param>
+    /// <param name="fftSize">Points per FFT frame; see <see cref="IsValidFftSize"/>.</param>
     /// <exception cref="AudioAnalysisException">Too little audio, or nothing but silence.</exception>
-    public static SpectralAnalysis Analyze(ReadOnlySpan<float> samples, int sampleRate, double timeStartSec = 0)
+    public static SpectralAnalysis Analyze(
+        ReadOnlySpan<float> samples, int sampleRate, double timeStartSec = 0, int bitsPerSample = 0, int fftSize = DefaultFftSize)
     {
-        var accumulator = new SpectralAccumulator(sampleRate, samples.Length);
+        var accumulator = new SpectralAccumulator(sampleRate, samples.Length, bitsPerSample, fftSize);
         accumulator.Add(samples);
         return accumulator.Complete(new AnalysisRequest(timeStartSec, (double)samples.Length / sampleRate, 0));
     }

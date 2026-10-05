@@ -66,14 +66,24 @@ public sealed class ExplanationTests(ITestOutputHelper output)
     {
         SpectralAnalysis res = SpectralAnalyzer.Analyze(BrickWallNoise(16000), Rate);
 
-        Assert.All(res.Criteria.Concat(res.Observations), point =>
+        Assert.All(res.Criteria.Concat(res.SupportingEvidence).Concat(res.Observations), point =>
         {
             Assert.False(string.IsNullOrWhiteSpace(point.Title));
             Assert.False(string.IsNullOrWhiteSpace(point.Value));
             Assert.False(string.IsNullOrWhiteSpace(point.Explanation));
         });
-        Assert.All(res.Criteria, point => Assert.False(string.IsNullOrWhiteSpace(point.Threshold)));
+        Assert.All(res.Criteria.Concat(res.SupportingEvidence), point => Assert.False(string.IsNullOrWhiteSpace(point.Threshold)));
         Assert.DoesNotContain(res.Observations, point => point.Title == "Durée du fichier");
+    }
+
+    // The probability is part of the explanation: the "Confiance" point tells how it
+    // was reached, whatever the verdict.
+    [Fact]
+    public void Confidence_ExplainsTheProbability()
+    {
+        SpectralAnalysis res = SpectralAnalyzer.Analyze(SlopedNoise(fromHz: 8000, dbPerKHz: 6), Rate);
+
+        Assert.Contains("probabilité de transcodage", Observation(res, "Confiance").Explanation);
     }
 
     private static AnalysisPoint Observation(SpectralAnalysis res, string title) =>

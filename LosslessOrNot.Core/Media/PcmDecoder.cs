@@ -26,7 +26,7 @@ internal static class PcmDecoder
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        long capacity = (long)(durationSec * sampleRate) + SpectralAnalyzer.FftSize;
+        long capacity = (long)(durationSec * sampleRate) + sink.FrameSize;
         long count = 0;
 
         using Process process = ProcessRunner.Start(ffmpegExe, BuildArguments(filePath, sampleRate, startSec, durationSec));
@@ -69,7 +69,7 @@ internal static class PcmDecoder
         string errors = await stderr.ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (count < SpectralAnalyzer.FftSize)
+        if (count < sink.FrameSize)
         {
             string why = ProcessRunner.FirstLine(errors);
             throw new AudioAnalysisException(why.Length > 0

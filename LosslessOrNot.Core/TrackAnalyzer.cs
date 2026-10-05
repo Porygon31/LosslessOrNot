@@ -18,10 +18,21 @@ public sealed record TrackResult(
 /// Seconds of audio to analyse in each file, clamped to the range
 /// <see cref="SpectralAnalyzer"/> allows. A shorter file is analysed whole.
 /// </param>
-public sealed record AnalysisOptions(double WindowSec = SpectralAnalyzer.DefaultWindowSec)
+/// <param name="FftSize">Samples per FFT frame; see <see cref="SpectralAnalyzer.IsValidFftSize"/>.</param>
+/// <exception cref="ArgumentOutOfRangeException">An FFT size the analysis does not accept.</exception>
+public sealed record AnalysisOptions(
+    double WindowSec = SpectralAnalyzer.DefaultWindowSec,
+    int FftSize = SpectralAnalyzer.DefaultFftSize)
 {
     public double WindowSec { get; } =
         Math.Clamp(WindowSec, SpectralAnalyzer.MinWindowSec, SpectralAnalyzer.MaxWindowSec);
+
+    public int FftSize { get; } = SpectralAnalyzer.IsValidFftSize(FftSize)
+        ? FftSize
+        : throw new ArgumentOutOfRangeException(
+            nameof(FftSize),
+            FftSize,
+            $"A power of two from {SpectralAnalyzer.MinFftSize} to {SpectralAnalyzer.MaxFftSize}.");
 }
 
 /// <summary>Probes, decodes and analyses files. Safe to use from several threads at once.</summary>
@@ -51,7 +62,15 @@ public sealed class TrackAnalyzer(FfmpegTools tools, AnalysisOptions? options = 
         try
         {
             SpectralAnalysis spectral = await SpectralAnalyzer
-                .AnalyzeFileAsync(path, Tools.FfmpegPath, info.SampleRate, info.DurationSec, Options.WindowSec, cancellationToken)
+                .AnalyzeFileAsync(
+                    path,
+                    Tools.FfmpegPath,
+                    info.SampleRate,
+                    info.DurationSec,
+                    Options.WindowSec,
+                    info.IntegerBitsPerSample,
+                    Options.FftSize,
+                    cancellationToken)
                 .ConfigureAwait(false);
             return new TrackResult(path, info, spectral, LosslessAssessor.Assess(info, spectral));
         }

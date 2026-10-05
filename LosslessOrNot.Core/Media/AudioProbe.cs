@@ -21,6 +21,15 @@ public sealed record AudioInfo
     /// <summary>Bit depth; 0 for codecs where it means nothing (MP3, AAC…).</summary>
     public int BitsPerSample { get; init; }
 
+    /// <summary>
+    /// The depth of integer samples, which sets the rounding noise the format carries;
+    /// 0 for floating-point PCM and when unknown.
+    /// </summary>
+    public int IntegerBitsPerSample =>
+        CodecName.StartsWith("pcm_f", StringComparison.OrdinalIgnoreCase) || BitsPerSample is < 8 or > 32
+            ? 0
+            : BitsPerSample;
+
     /// <summary>Bits per second; 0 when unknown.</summary>
     public long BitRate { get; init; }
 

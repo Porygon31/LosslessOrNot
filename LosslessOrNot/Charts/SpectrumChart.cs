@@ -6,8 +6,9 @@ namespace LosslessOrNot.Charts;
 
 /// <summary>
 /// The averaged spectrum the verdict was derived from, with the thresholds it was
-/// judged against: the -70 dB content floor, the -88 dB codec floor, where content
-/// ends and, for a lossy verdict, where the wall is.
+/// judged against: the content threshold, the -88 dB codec floor, the rounding noise
+/// of the file's bit depth, where content ends and, for a lossy verdict, where the
+/// wall is.
 /// </summary>
 public sealed class SpectrumChart : Control
 {
@@ -127,8 +128,20 @@ public sealed class SpectrumChart : Control
     {
         int pad = LogicalToDeviceUnits(6);
 
-        DrawLevel(VerdictEngine.ContentFloorDb, $"seuil de contenu ({VerdictEngine.ContentFloorDb:0} dB)", ChartPainting.FloorMarker);
+        // The content threshold rises above -70 dB on a track quiet enough for its
+        // rounding noise to come close.
+        double contentDb = a.ContentThresholdDb < 0 ? a.ContentThresholdDb : VerdictEngine.ContentFloorDb;
+        DrawLevel(contentDb, $"seuil de contenu ({contentDb:0} dB)", ChartPainting.FloorMarker);
         DrawLevel(VerdictEngine.CodecFloorDb, $"plancher d'un codec ({VerdictEngine.CodecFloorDb:0} dB)", ChartPainting.WallMarker);
+        if (a.QuantizationFloorDb is { } quantizationDb && quantizationDb > MinDb)
+        {
+            // On the left: it often sits close to the codec floor, labelled on the right.
+            DrawLevel(
+                quantizationDb,
+                $"bruit de quantification {a.BitsPerSample} bits ({quantizationDb:0} dB)",
+                ChartPainting.QuantizationMarker,
+                left: true);
+        }
 
         if (a.CutoffHz > 0)
         {
@@ -150,13 +163,14 @@ public sealed class SpectrumChart : Control
             ChartPainting.DrawLabel(g, label, Font, new Point(Math.Max(plot.Left + pad, x - size.Width - pad), plot.Top + pad + size.Height + pad), ChartPainting.WallMarker);
         }
 
-        void DrawLevel(double db, string label, Color color)
+        void DrawLevel(double db, string label, Color color, bool left = false)
         {
             int y = YForDb(plot, db);
             using Pen pen = ChartPainting.DashedPen(color);
             g.DrawLine(pen, plot.Left, y, plot.Right, y);
             Size size = TextRenderer.MeasureText(g, label, Font, Size.Empty, TextFormatFlags.NoPadding);
-            ChartPainting.DrawLabel(g, label, Font, new Point(plot.Right - size.Width - pad, y - size.Height - 2), color);
+            int x = left ? plot.Left + pad : plot.Right - size.Width - pad;
+            ChartPainting.DrawLabel(g, label, Font, new Point(x, y - size.Height - 2), color);
         }
     }
 

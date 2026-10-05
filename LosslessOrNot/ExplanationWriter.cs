@@ -1,6 +1,7 @@
 using LosslessOrNot.Core;
 using LosslessOrNot.Core.Assessment;
 using LosslessOrNot.Core.Spectral;
+using static LosslessOrNot.Core.TextFormat;
 
 namespace LosslessOrNot;
 
@@ -56,11 +57,36 @@ internal static class ExplanationWriter
         text.Heading("Les 3 critères d'un encodeur avec perte");
         text.Line(
             "Un encodeur avec perte (MP3, AAC…) supprime les aigus au-dessus d'une fréquence de coupure. Le fichier "
-            + "n'est jugé « avec perte » que si les trois critères sont réunis à la fois.",
+            + "n'est jugé « avec perte » que si les trois critères sont réunis à la fois, et si l'ensemble des indices "
+            + "le confirme.",
             color: SystemColors.GrayText);
         for (int i = 0; i < spectral.Criteria.Count; i++)
         {
             WritePoint(text, spectral.Criteria[i], $"{i + 1}. ", indent);
+        }
+
+        if (spectral.SupportingEvidence.Count > 0)
+        {
+            text.Heading("Indices complémentaires");
+            text.Line(
+                "Mesurés trame par trame, là où le spectre moyen ne voit rien : ils renforcent ou affaiblissent les "
+                + "critères.",
+                color: SystemColors.GrayText);
+            for (int i = 0; i < spectral.SupportingEvidence.Count; i++)
+            {
+                WritePoint(text, spectral.SupportingEvidence[i], $"{spectral.Criteria.Count + i + 1}. ", indent);
+            }
+        }
+
+        // A lossy format is lossy whatever the spectrum: there is no transcode to weigh.
+        if (assessment.Status != LosslessStatus.LossyFormat)
+        {
+            text.Gap();
+            text.Line(Fr($"→ Probabilité de transcodage : {spectral.LossyProbability:P0}"), font: text.Bold);
+            text.Line(
+                "Chaque poids multiplie les chances d'un transcodage, ou celles d'un vrai lossless ; tous ensemble, ils "
+                + "donnent cette probabilité.",
+                color: SystemColors.GrayText);
         }
         text.Gap();
         text.Line("→ " + spectral.Conclusion, font: text.Bold);
@@ -98,6 +124,22 @@ internal static class ExplanationWriter
         {
             text.Line("Seuil : " + point.Threshold, indent, text.Italic, SystemColors.GrayText);
         }
+        if (point.Weight is { } weight)
+        {
+            text.Line("Poids : " + DescribeWeight(weight), indent, text.Italic, SystemColors.GrayText);
+        }
+    }
+
+    // A contribution in log-odds reads best as the factor it multiplies the odds by.
+    private static string DescribeWeight(double logOdds)
+    {
+        if (Math.Abs(logOdds) < 0.1)
+        {
+            return "neutre";
+        }
+        double factor = Math.Exp(Math.Abs(logOdds));
+        string times = factor < 10 ? Fr($"×{factor:0.#}") : Fr($"×{factor:0}");
+        return logOdds > 0 ? times + " vers un encodeur avec perte" : times + " vers un vrai lossless";
     }
 
     private static void WriteFailure(RichTextComposer text, TrackResult result)

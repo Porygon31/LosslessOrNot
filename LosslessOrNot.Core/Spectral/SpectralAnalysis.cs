@@ -46,14 +46,78 @@ public sealed class SpectralAnalysis
     /// <summary>For example "MP3 ≈320 kbps"; empty unless the verdict is lossy.</summary>
     public string LikelySource { get; init; } = "";
 
+    /// <summary>
+    /// The probability, 0..1, that the audio went through a lossy encoder: every
+    /// indicator's weight, added up in log-odds. Whatever the verdict.
+    /// </summary>
+    public double LossyProbability { get; init; }
+
+    /// <summary>Whether the three criteria of a codec's wall are all met.</summary>
+    public bool HasCodecWall { get; init; }
+
+    /// <summary>The integer depth the analysis assumed; 0 when unknown.</summary>
+    public int BitsPerSample { get; init; }
+
+    /// <summary>
+    /// The level content must exceed, in dB relative to the peak: -70 dB, or 10 dB
+    /// above the rounding noise when that is higher.
+    /// </summary>
+    public double ContentThresholdDb { get; init; }
+
+    /// <summary>The rounding noise of the file's bit depth in each bin, in dB relative to the peak; null when unknown.</summary>
+    public double? QuantizationFloorDb { get; init; }
+
+    /// <summary>The floor above the wall compared with that rounding noise, in dB; null when unknown.</summary>
+    public double? FloorAboveQuantizationDb { get; init; }
+
+    /// <summary>
+    /// Spearman correlation, frame by frame, between the music just below the wall and
+    /// the residue above it; null without a wall, or without enough frames or dynamics.
+    /// </summary>
+    public double? FloorMusicCorrelation { get; init; }
+
+    /// <summary>Share of the treble-richest frames where the wall holds; null when it cannot be measured.</summary>
+    public double? WallPersistence { get; init; }
+
+    /// <summary>
+    /// How far the region above the wall lies below the music under it, in the frames
+    /// richest in treble; null when it cannot be measured.
+    /// </summary>
+    public double? FloorDepthDb { get; init; }
+
+    /// <summary>
+    /// How the averaged spectrum slopes, in dB per kHz, from 1 to 5 kHz above the wall:
+    /// music keeps falling, clipping distortion and dither do not. Null without a wall
+    /// or room above it.
+    /// </summary>
+    public double? FloorSlopeDbPerKHz { get; init; }
+
+    /// <summary>Every raw measurement, for the calibration tool: the public ones above are filtered for display.</summary>
+    internal Measurements? Measurements { get; init; }
+
+    /// <summary>The weight of every indicator, for the calibration tool.</summary>
+    internal Score? Score { get; init; }
+
+    /// <summary>
+    /// Spearman correlation between the 12–20 kHz band and the energy beyond 21 kHz;
+    /// null when it cannot be measured.
+    /// </summary>
+    public double? HighBandMusicCorrelation { get; init; }
+
     /// <summary>Human-readable justification, shown next to the verdict.</summary>
     public IReadOnlyList<string> Evidence { get; init; } = [];
 
     /// <summary>
     /// The three tests a lossy encoder's wall must pass — abrupt, low enough, and
-    /// landing in a digital floor — each with its value, meaning and threshold.
+    /// nothing musical above it — each with its value, meaning, threshold and weight.
     /// </summary>
     public IReadOnlyList<AnalysisPoint> Criteria { get; init; } = [];
+
+    /// <summary>
+    /// The frame-by-frame indicators that strengthen or weaken the criteria: whether
+    /// the wall holds at every instant, and whether content beyond 21 kHz is music.
+    /// </summary>
+    public IReadOnlyList<AnalysisPoint> SupportingEvidence { get; init; } = [];
 
     /// <summary>Everything else that informs the verdict: content reach, confidence, audio analysed…</summary>
     public IReadOnlyList<AnalysisPoint> Observations { get; init; } = [];
@@ -78,6 +142,9 @@ public sealed class SpectralAnalysis
 
     /// <summary>How much evidence the verdict rests on.</summary>
     public int FramesAnalyzed { get; init; }
+
+    /// <summary>Samples in each of those frames; they overlap by half.</summary>
+    public int FftSize { get; init; } = SpectralAnalyzer.DefaultFftSize;
 
     // ── Interactive spectrogram data ─────────────────────────────────────────
 
